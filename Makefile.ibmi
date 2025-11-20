@@ -1,0 +1,151 @@
+# Copyright (c) 1998-2023 Cloud Software Group, Inc.
+# All Rights Reserved.
+
+# TIB/Rendezvous Example code
+
+TIBRV_DIR=../..
+
+# IBM Tools for Developers for IBM i, PRPQ 5799-PTL is required for
+# the gmake, icc, and del tools.
+
+O=.o
+EXE=
+RM=del -fv
+OUT=-o
+OBJOUT=-o
+CC=icc
+OPT_DBG_FLAGS=-qDBGVIEW=*ALL -qSHOWUSR
+LDFLAGS=-v
+INCFILES=-I$(TIBRV_DIR)/include
+CFLAGS=-v $(OPT_DBG_FLAGS) -qTGTCCSID=*JOB -qENUM=4 $(INCFILES)
+DASH_C=-c
+TIBRV_LIB=libtibrv.so
+TIBRVFT_LIB=libtibrvft.so
+TIBRVCM_LIB=libtibrvcmq.so libtibrvcm.so libtibrvft.so
+
+# The environment variable OUTPUTDIR should be set to the name of the
+# library where module and program objects will be created.
+
+export OUTPUTDIR=QGPL
+
+# The default product library used by RSTLICPGM is TIBRVLIB.  If you
+# used the LIB option to RSTLICPGM to specify a non-default product
+# library, then modify CLIENTLIB accordingly.
+
+CLIENTLIB=TIBRVLIB
+
+# Symbolic links to the service programs in $(CLIENTLIB) must be
+# created for use with icc.
+
+all::	libtibrv.so libtibrvcm.so libtibrvcmq.so libtibrvft.so
+
+libtibrv.so:
+	ln -s /QSYS.LIB/$(CLIENTLIB).LIB/LIBTIBRV.SRVPGM $@
+
+libtibrvcm.so:
+	ln -s /QSYS.LIB/$(CLIENTLIB).LIB/LIBTIBRVCM.SRVPGM $@
+
+libtibrvcmq.so:
+	ln -s /QSYS.LIB/$(CLIENTLIB).LIB/LIBTIBRVC0.SRVPGM $@
+
+libtibrvft.so:
+	ln -s /QSYS.LIB/$(CLIENTLIB).LIB/LIBTIBRVFT.SRVPGM $@
+
+clean::
+	rm -f libtibrv.so
+	rm -f libtibrvcm.so
+	rm -f libtibrvcmq.so
+	rm -f libtibrvft.so
+
+LIBS=  $(TIBRV_LIB) $(MATH_LIB) $(SOCKET_LIBS) $(SYS_LIBS) $(TLIBS)
+
+all::	tibrvsend$(EXE) tibrvlisten$(EXE) \
+	tibrvclient$(EXE) tibrvserver$(EXE) \
+	tibrvfttime$(EXE) tibrvftmon$(EXE) \
+	tibrvinitval$(EXE) tibrvcmsend$(EXE)\
+	tibrvcmlisten$(EXE) tibrvdqlisten$(EXE) \
+	dispatcher$(EXE) priority$(EXE) \
+	usertypes$(EXE) tibrvmultisend$(EXE) \
+	tibrvreviewldgr$(EXE) \
+	tibrvvcserver$(EXE) tibrvvcclient$(EXE) \
+	tibrvvectorlisten$(EXE) tibrvvectorlistentester$(EXE)
+
+clean::
+	$(RM) *$(O)
+	$(RM) core
+	$(RM) tibrvlisten$(EXE)
+	$(RM) tibrvsend$(EXE)
+	$(RM) tibrvclient$(EXE)
+	$(RM) tibrvserver$(EXE)
+	$(RM) tibrvfttime$(EXE)
+	$(RM) tibrvftmon$(EXE)
+	$(RM) tibrvinitval$(EXE)
+	$(RM) tibrvcmsend$(EXE)
+	$(RM) tibrvcmlisten$(EXE)
+	$(RM) tibrvdqlisten$(EXE)
+	$(RM) dispatcher$(EXE)
+	$(RM) priority$(EXE)
+	$(RM) usertypes$(EXE)
+	$(RM) tibrvmultisend$(EXE)
+	$(RM) tibrvreviewldgr$(EXE)
+	$(RM) tibrvvcserver$(EXE)
+	$(RM) tibrvvcclient$(EXE)
+	$(RM) tibrvvectorlisten$(EXE)
+	$(RM) tibrvvectorlistentester$(EXE)
+
+tibrvlisten$(EXE):	tibrvlisten$(O)
+	$(CC) $(LDFLAGS) tibrvlisten$(O) $(LIBS) $(OUT)$@
+
+tibrvsend$(EXE):	tibrvsend$(O)
+	$(CC) $(LDFLAGS) tibrvsend$(O)  $(LIBS) $(OUT)$@
+
+tibrvclient$(EXE):	tibrvclient$(O)
+	$(CC) $(LDFLAGS) tibrvclient$(O)  $(LIBS) $(OUT)$@
+
+tibrvserver$(EXE):	tibrvserver$(O)
+	$(CC) $(LDFLAGS) tibrvserver$(O)  $(LIBS) $(OUT)$@
+
+dispatcher$(EXE):	dispatcher$(O)
+	$(CC) $(LDFLAGS) dispatcher$(O)  $(LIBS) $(OUT)$@
+
+priority$(EXE):	priority$(O)
+	$(CC) $(LDFLAGS) priority$(O)  $(LIBS) $(OUT)$@
+
+tibrvfttime$(EXE):	tibrvfttime$(O)
+	$(CC) $(LDFLAGS) tibrvfttime$(O) $(TIBRVFT_LIB) $(LIBS) $(OUT)$@
+
+tibrvftmon$(EXE):	tibrvftmon$(O)
+	$(CC) $(LDFLAGS) tibrvftmon$(O)  $(TIBRVFT_LIB) $(LIBS) $(OUT)$@
+
+tibrvinitval$(EXE):	tibrvinitval$(O)
+	$(CC) $(LDFLAGS) tibrvinitval$(O) $(LIBS) $(OUT)$@
+
+tibrvcmlisten$(EXE):	tibrvcmlisten$(O)
+	$(CC) $(LDFLAGS) tibrvcmlisten$(O) $(TIBRVCM_LIB) $(LIBS) $(OUT)$@
+
+tibrvcmsend$(EXE):	tibrvcmsend$(O)
+	$(CC) $(LDFLAGS) tibrvcmsend$(O) $(TIBRVCM_LIB) $(LIBS) $(OUT)$@
+
+tibrvdqlisten$(EXE):	tibrvdqlisten$(O)
+	$(CC) $(LDFLAGS) tibrvdqlisten$(O) $(TIBRVCM_LIB) $(LIBS) $(OUT)$@
+
+usertypes$(EXE):	usertypes$(O)
+	$(CC) $(LDFLAGS) usertypes$(O) $(LIBS) $(OUT)$@
+
+tibrvmultisend$(EXE):	tibrvmultisend$(O)
+	$(CC) $(LDFLAGS) tibrvmultisend$(O)  $(LIBS) $(OUT)$@
+
+tibrvreviewldgr$(EXE):	tibrvreviewldgr$(O)
+	$(CC) $(LDFLAGS) tibrvreviewldgr$(O)  $(TIBRVCM_LIB) $(LIBS) $(OUT)$@
+
+tibrvvcserver$(EXE):	tibrvvcserver$(O)
+	$(CC) $(LDFLAGS) tibrvvcserver$(O)  $(LIBS) $(OUT)$@
+
+tibrvvcclient$(EXE):	tibrvvcclient$(O)
+	$(CC) $(LDFLAGS) tibrvvcclient$(O)  $(LIBS) $(OUT)$@
+
+tibrvvectorlisten$(EXE):	tibrvvectorlisten$(O)
+	$(CC) $(LDFLAGS) tibrvvectorlisten$(O) $(LIBS) $(OUT)$@
+
+tibrvvectorlistentester$(EXE):	tibrvvectorlistentester$(O)
+	$(CC) $(LDFLAGS) tibrvvectorlistentester$(O) $(LIBS) $(OUT)$@
