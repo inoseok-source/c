@@ -43,7 +43,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <windows.h>
 
 //#include "tibrv/tibrv.h"
 //#include "tibrv/ft.h"
@@ -53,11 +52,6 @@
 #define SUBJECT "TIBRVFT_TIME"
 char *progname;
 
-// 메모리 고갈 시뮬레이션을 위한 전역 변수 (한글 주석)
-//#define MEM_BLOCK_SIZE (10 * 1024 * 1024) // 10MB 블록
-#define MEM_BLOCK_SIZE (1 * 1024 * 1024 * 1024) // 10MB 블록
-#define MAX_BLOCKS 500 // 최대 5GB 메모리 사용 시도
-
 struct stfdata
 {
     tibrvTransport      transport;
@@ -65,11 +59,6 @@ struct stfdata
     tibrvTransport      fttransport;
     tibrvftMember       groupId;
     tibrv_bool          active;
-    tibrv_f64           memFailDelay; // 메모리 고갈 시뮬레이션 시작 지연 시간 (초) (한글 주석)
-    time_t              startTime;    // 프로그램 시작 시간 (한글 주석)
-    char** memoryBlocks; // 할당된 메모리 블록 포인터 배열 (한글 주석)
-    int                 currentBlocks; // 현재 할당된 블록 수 (한글 주석)
-    tibrv_bool          isBlocked;
 };
 
 static char* UsageMessage[]=
@@ -87,7 +76,6 @@ static char* UsageMessage[]=
     "-ft-heartbeat <s>      Heartbeat interval",
     "-ft-prepare <s>        Prepare interval",
     "-ft-activate <s>       Activate interval",
-    "-sim-mem-fail <s>      Delay in seconds before memory exhaustion simulation (한글 주석: 메모리 고갈 시뮬레이션 지연 시간(초))",
     NULL
 };
 
@@ -133,164 +121,8 @@ advCB(tibrvEvent        event,
 
     return;
 } /* advCB  */
-void
-simulateMemoryExhaustion(struct stfdata *datap)
-{
-    #if 0
-    // FT Transport가 TIBRV_NULL이 아니어야 파괴 시도 (이미 파괴된 경우 제외) (한글 주석)
-    if (datap->memFailDelay <= 0 || datap->groupId == 0) return;
-
-    // 프로그램 시작 시간으로부터 경과된 시간을 확인 (한글 주석)
-    time_t now = time(NULL);
-    double elapsed = difftime(now, datap->startTime); 
-
-    if (elapsed >= datap->memFailDelay)
-    {
-        // 지연 시간이 지났으면 FT Transport 파괴 시작 (한글 주석)
-        fprintf(stderr, "!!! SIMULATION: Destroying FT Transport (ftFailDelay: %.1f seconds) to force DISABLING_MEMBER error. !!!\n", datap->memFailDelay);
-
-        // FT Transport 파괴를 시도합니다. 이 Transport를 RVFT Heartbeat에 사용하고 있습니다.
-        tibrvftMember_Destroy(datap->groupId );
-        datap->groupId  = 0; // 파괴 후 NULL로 설정하여 중복 호출 방지
-
-        // Heartbeat 이벤트가 다음에 디스패치될 때, 파괴된 트랜스포트 사용 오류가 발생합니다.
-        datap->memFailDelay = -1.0; // 시뮬레이션 중지
-    }
-    #endif
-    #if 1
-    // 이미 블로킹 중이거나, 시뮬레이션 설정이 없으면 리턴 (한글 주석)
-    if (datap->isBlocked || datap->memFailDelay <= 0) return;
-
-    time_t now = time(NULL);
-    double elapsed = difftime(now, datap->startTime); 
-
-    if (elapsed >= datap->memFailDelay)
-    {
-        // 지연 시간이 지났으면 블로킹 시작 (한글 주석)
-        datap->isBlocked = TIBRV_TRUE;
-        fprintf(stderr, "!!! SIMULATION: CPU blocking started for %.1f seconds to force DISABLING_MEMBER error. !!!\n", 10.0);
-
-        time_t blockStart = time(NULL);
-        
-        // 메인 스레드를 장시간 블로킹 (Busy Loop) (한글 주석)
-        while (difftime(time(NULL), blockStart) < 20.0)
-        {
-            // CPU에 부하를 주는 간단한 계산 (한글 주석)
-            volatile double result = 0.0;
-            for (int i = 0; i < 100000; i++) {
-                result += sin(i) * cos(i);
-            }
-        }
-
-        datap->isBlocked = TIBRV_FALSE;
-        datap->memFailDelay = -1;
-        // 시뮬레이션이 끝난 후 Heartbeat 주기가 다시 돌아올 때 RVFT가 오류를 발생시키도록 함 (한글 주석)
-        fprintf(stderr, "!!! SIMULATION: CPU blocking finished. Dispatcher resuming. !!!\n");
-    }
 
 
-#endif
-}
-#if 0
-void
-simulateMemoryExhaustion(struct stfdata *datap)
-{
-    if (datap->memFailDelay <= 0) return;
-    
-    time_t now = time(NULL);
-    double elapsed = difftime(now, datap->startTime);
-
-    while(elapsed == datap->memFailDelay)
-    {
-        if (datap->currentBlocks >= MAX_BLOCKS) 
-            break;
-        else if (datap->currentBlocks == 7)
-        {
-            datap->memFailDelay = -1;
-            //datap->active = TIBRV_FALSE;
-            break;
-        }    
-        char *block = (char *)malloc(MEM_BLOCK_SIZE);
-        if (block == NULL)
-        {
-            fprintf(stderr, "!!! SIMULATION FAILURE: Failed to allocate memory block. System memory exhausted (current blocks: %d) !!!\n", datap->currentBlocks);
-            datap->memFailDelay = -1; // 시뮬레이션 중지 (한글 주석)
-            //datap->active = TIBRV_FALSE;
-            return;
-        }
-
-         // 메모리 블록을 배열에 저장하고 초기화 (한글 주석)
-        datap->memoryBlocks[datap->currentBlocks] = block;
-        memset(block, 0xAA, MEM_BLOCK_SIZE);
-        datap->currentBlocks++;
-        //fprintf(stderr, "SIMULATION: Allocated memory block #%d. Total allocated: %d MB.\n", datap->currentBlocks, datap->currentBlocks * 10);
-        fprintf(stderr, "SIMULATION: Allocated memory block #%d. Total allocated: %d MB.\n", datap->currentBlocks, datap->currentBlocks * 1000);
-        Sleep(1000);
-    }
-    if (datap->currentBlocks >= MAX_BLOCKS)
-    {
-        fprintf(stderr, "!!! SIMULATION: Max memory blocks allocated. Waiting for OS/RVFT to report DISABLING_MEMBER error. !!!\n");
-        datap->memFailDelay = -1; // 목표치 도달 후 시뮬레이션 중지 (한글 주석)
-    }
-}
-#endif
-#if 0
-// 메모리 고갈 시뮬레이션 함수 추가 (한글 주석)
-int
-simulateMemoryExhaustion(struct stfdata *datap)
-{
-    if (datap->memFailDelay <= 0) return 1;
-
-    // 프로그램 시작 시간으로부터 경과된 시간을 확인 (한글 주석)
-    time_t now = time(NULL);
-    double elapsed = difftime(now, datap->startTime);
-
-    if (elapsed >= datap->memFailDelay && datap->currentBlocks < MAX_BLOCKS)
-    {
-        // 30초가 지났고 아직 메모리 고갈 시도가 완료되지 않았을 경우 (한글 주석)
-        int blocks_to_allocate = 1; // 매번 10MB씩 할당을 시도
-        if(datap->memFailDelay == 30)
-        {
-        tibrvTransport_Destroy(datap->fttransport);
-        datap->fttransport = 0;
-        datap->memFailDelay = -1;
-        //fprintf(stderr, "!!! SIMULATION: Forcing a publish failure to test DISABLING_MEMBER error !!!\n");
-        //datap->active = TIBRV_FALSE;
-        return -1;
-        }
-        return 1;
-        
-        for (int i = 0; i < blocks_to_allocate; i++)
-        {
-            if (datap->currentBlocks >= MAX_BLOCKS) break;
-
-            char *block = (char *)malloc(MEM_BLOCK_SIZE);
-            if (block == NULL)
-            {
-                fprintf(stderr, "!!! SIMULATION FAILURE: Failed to allocate memory block. System memory exhausted (current blocks: %d) !!!\n", datap->currentBlocks);
-                datap->memFailDelay = -1; // 시뮬레이션 중지 (한글 주석)
-                //datap->active = TIBRV_FALSE;
-                return -1;
-            }
-
-            // 메모리 블록을 배열에 저장하고 초기화 (한글 주석)
-            datap->memoryBlocks[datap->currentBlocks] = block;
-            memset(block, 0xAA, MEM_BLOCK_SIZE);
-            datap->currentBlocks++;
-            //fprintf(stderr, "SIMULATION: Allocated memory block #%d. Total allocated: %d MB.\n", datap->currentBlocks, datap->currentBlocks * 10);
-            fprintf(stderr, "SIMULATION: Allocated memory block #%d. Total allocated: %d MB.\n", datap->currentBlocks, datap->currentBlocks * 1900);
-        }
-
-        if (datap->currentBlocks >= MAX_BLOCKS)
-        {
-             fprintf(stderr, "!!! SIMULATION: Max memory blocks allocated. Waiting for OS/RVFT to report DISABLING_MEMBER error. !!!\n");
-             datap->memFailDelay = -1; // 목표치 도달 후 시뮬레이션 중지 (한글 주석)
-        }
-        
-    }
-    return 1;
-}
-#endif
 /*
  * Timer callback called every 10 seconds.  Publish time if active.
  */
@@ -307,20 +139,9 @@ pubTime(tibrvEvent      event,
 
     struct stfdata * datap = (struct stfdata *) closure;
 
-    // 타이머 콜백에서 메모리 고갈 시뮬레이션 함수 호출 (한글 주석)
-    simulateMemoryExhaustion(datap);
-    //Sleep(5000);
     if (!datap->active)         /* do nothing if not active */
         return;
 
-    #if 0
-    if(simulateMemoryExhaustion(datap) < 0)
-    {
-        fprintf(stderr, "!!! SIMULATION\n");
-        datap->active = TIBRV_FALSE;
-        return;
-    }
-    #endif
     /* Initialize tib_time variables */
     tib_time.nsec = 0;
     tib_time.sec = 0;
@@ -440,8 +261,7 @@ get_InitParms( int  argc,
                tibrv_u16 *numactive,
                tibrv_f64 *hbInterval,
                tibrv_f64 *prepareInterval,
-               tibrv_f64 *activateInterval,
-               tibrv_f64  *memFailDelay) // 메모리 고갈 지연 시간 매개변수 추가 (한글 주석))
+               tibrv_f64 *activateInterval)
 {
     int i=1;
 
@@ -490,29 +310,24 @@ get_InitParms( int  argc,
             *ftweight = (tibrv_u16) atol(argv[i+1]);
             i+=2;
         }
-        else if(strcmp(argv[i], "-ft-numactive") == 0) 
+        else if (strcmp(argv[i], "-ft-numactive") == 0) 
         {
-            *numactive = (tibrv_u16) atol(argv[i+1]);
+            *numactive = (tibrv_u16)atol(argv[i+1]);
             i+=2;
         }
-        else if(strcmp(argv[i], "-ft-heartbeat") == 0) 
+        else if (strcmp(argv[i], "-ft-heartbeat") == 0) 
         {
-            *hbInterval = (tibrv_f64) atof(argv[i+1]);
+            *hbInterval = (tibrv_f64)atof(argv[i+1]);
             i+=2;
         }
-        else if(strcmp(argv[i], "-ft-prepare") == 0) 
+        else if (strcmp(argv[i], "-ft-prepare") == 0) 
         {
-            *prepareInterval = (tibrv_f64) atof(argv[i+1]);
+            *prepareInterval = (tibrv_f64)atof(argv[i+1]);
             i+=2;
         }
-        else if(strcmp(argv[i], "-ft-activate") == 0) 
+        else if (strcmp(argv[i], "-ft-activate") == 0) 
         {   
-            *activateInterval = (tibrv_f64) atof(argv[i+1]);
-            i+=2;
-        }
-        else if(strcmp(argv[i], "-sim-mem-fail") == 0) // 메모리 고갈 지연 시간 매개변수 파싱 (한글 주석)
-        {
-            *memFailDelay = (tibrv_f64) atof(argv[i+1]);
+            *activateInterval = (tibrv_f64)atof(argv[i+1]);
             i+=2;
         }
         else
@@ -536,8 +351,7 @@ main(int argc, char **argv)
     char                *daemonStr = NULL;
     struct stfdata      data;   /* use for closure data block */
 
-    //tibrv_f64 timeInt = 10.0;     /* publish time every 10 seconds */
-    tibrv_f64 timeInt = 2.0;     /* publish time every 10 seconds */
+    tibrv_f64 timeInt = 10;     /* publish time every 10 seconds */
 
     char                *ftserviceStr = NULL;
     char                *ftnetworkStr = NULL;
@@ -548,7 +362,6 @@ main(int argc, char **argv)
     tibrv_f64           hbInterval=1.5;
     tibrv_f64           prepareInterval=0;
     tibrv_f64           activateInterval=4.8;
-    tibrv_f64           memFailDelay = -1.0; // 기본값 -1.0 (시뮬레이션 사용 안함) (한글 주석)
 
     tibrvEvent          advId;
 
@@ -560,21 +373,12 @@ main(int argc, char **argv)
 
     fprintf( stdout, "%s initializing...\n", progname);
 
-    // 구조체 초기화 (추가) (한글 주석)
-    memset(&data, 0, sizeof(struct stfdata));
-    data.memoryBlocks = (char**)calloc(MAX_BLOCKS, sizeof(char*));
-    if (data.memoryBlocks == NULL) {
-        fprintf(stderr, "%s: Failed to allocate memory for block pointers\n", progname);
-        exit(1);
-    }
-
     i= get_InitParms( argc, argv, 0,
                       &serviceStr, &networkStr, &daemonStr,
                       &ftserviceStr, &ftnetworkStr, &ftdaemonStr, &groupName,
-                      &ftweight, &numactive, &hbInterval, &prepareInterval, 
-                      &activateInterval , &memFailDelay);
-printf("DEBUG: group=%s Weight=%u heartbeat=%f activation=%f memfaildel=%f active goal=%u\n",
-    groupName, (unsigned)ftweight, hbInterval, activateInterval,memFailDelay, numactive);
+                      &ftweight, &numactive, &hbInterval, &prepareInterval, &activateInterval );
+printf("DEBUG: group=%s Weight=%u heartbeat=%f activation=%f \n",
+    groupName, (unsigned)ftweight, hbInterval, activateInterval);
         // printf("DEBUG: group=%s workerWeight=%u workerTasks=%u schedulerWeight=%u heartbeat=%f activation=%f backlogMsgs=%u\n",
     //  cmnameStr, (unsigned)workerWeight, (unsigned)workerTasks, (unsigned)schedulerWeight,
      //  schedulerHeartbeat, schedulerActivation, (unsigned)backlogMsgs);
@@ -583,12 +387,7 @@ printf("DEBUG: group=%s Weight=%u heartbeat=%f activation=%f memfaildel=%f activ
         ftweight = (tibrv_u16) atol(argv[i++]);
     }
 
-   // memset(&data, 0, sizeof(struct stfdata));
-
-    // data 구조체에 시작 시간 및 지연 시간 저장 (한글 주석)
-    data.startTime = time(NULL);
-    data.memFailDelay = memFailDelay;
-
+    memset(&data, 0, sizeof(struct stfdata));
 
     /* Create internal TIB/Rendezvous machinery */
     err = tibrv_Open();
@@ -678,20 +477,16 @@ printf("DEBUG: group=%s Weight=%u heartbeat=%f activation=%f memfaildel=%f activ
     /*
      * Subscribe to RVFT advisories.
      */
-//_RV.ERROR.RVFT.PARAM_MISMATCH.group
-//_RV.WARN.RVFT.PARAM_MISMATCH.group
-//_RV.ERROR.RVFT.DISABLING_MEMBER.group
+
     err = tibrvEvent_CreateListener(
                 &advId,
                 TIBRV_DEFAULT_QUEUE,
                 advCB,
                 data.fttransport,
                 //"_RV.*.RVFT.*.TIBRVFT_TIME_EXAMPLE",
-                //"_RV.*.SYSTEM.>",
-                //"_RV.ERROR.RVFT.DISABLING_MEMBER.TIBRVFT_TIME_EXAMPLE",
                 "_RV.*.RVFT.*.>",
                 &data);
-    fprintf(stderr,"start listening to advisories\n");
+
     if(err != TIBRV_OK)
     {
         fprintf(stderr,"%s: Failed to start listening to advisories - %s\n",
@@ -717,19 +512,6 @@ printf("DEBUG: group=%s Weight=%u heartbeat=%f activation=%f memfaildel=%f activ
     tibrvEvent_Destroy(data.timerId);
     tibrvftMember_Destroy(data.groupId);
 
-    // 메모리 해제 (종료 시) (한글 주석)
-    for (int j = 0; j < data.currentBlocks; j++) {
-        free(data.memoryBlocks[j]);
-    }
-    free(data.memoryBlocks);
-
-    if (data.groupId != 0) {
-        tibrvftMember_Destroy(data.groupId);
-    }
-
-    if (data.fttransport != 0) {
-        tibrvTransport_Destroy(data.fttransport);
-    }
     tibrv_Close();
 
     exit(0);

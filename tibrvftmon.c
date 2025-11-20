@@ -22,9 +22,10 @@
 #include <string.h>
 #include <signal.h>
 
-#include "tibrv/tibrv.h"
-#include "tibrv/ft.h"
-
+//#include "tibrv/tibrv.h"
+//#include "tibrv/ft.h"
+#include <c:\tibco\tibrv\8.7\include\tibrv\tibrv.h>
+#include <c:\tibco\tibrv\8.7\include\tibrv\ft.h>
 /*
  * Fault tolerance monitor callback called when TIBRVFT detects a
  * change in the number of active members in group TIBRVFT_TIME_EXAMPLE.
@@ -49,12 +50,20 @@ monCB(
 
     return;
 }
-
+ /*else if(strcmp(argv[i], "-group") == 0)
+        {
+            *groupStr = argv[i+1];
+            i+=2;
+        }
+   
+     else if (strcmp(argv[i], "-ft-lost-interval") == 0) 
+*/
 void
 usage(void)
 {
     fprintf(stderr,"tibrvftmon [-service service] [-network network] \n");
-    fprintf(stderr,"           [-daemon daemon] \n");
+    fprintf(stderr,"           [-daemon daemon] [-group name] \n");
+    fprintf(stderr,"           [-ft-lost-interval interval] \n");
     exit(1);
 }
 
@@ -69,7 +78,9 @@ get_InitParms(
     char*       argv[],
     char**      serviceStr,
     char**      networkStr,
-    char**      daemonStr)
+    char**      daemonStr,
+    char**      groupStr,
+    tibrv_f64* lostInt)
 {
     int i=1;
 
@@ -88,6 +99,16 @@ get_InitParms(
         else if (strcmp(argv[i], "-daemon") == 0)
         {
             *daemonStr = argv[i+1];
+            i+=2;
+        }
+        else if(strcmp(argv[i], "-group") == 0)
+        {
+            *groupStr = argv[i+1];
+            i+=2;
+        }
+        else if (strcmp(argv[i], "-ft-lost-interval") == 0) // lostInt 옵션 파싱 로직 추가
+        {
+            *lostInt = (tibrv_f64)atof(argv[i+1]);
             i+=2;
         }
         else
@@ -109,13 +130,14 @@ main( int argc, char **argv)
     char*               serviceStr = NULL;
     char*               networkStr = NULL;
     char*               daemonStr  = NULL;
+    char *              groupName = "TIBRVFT_TIME_EXAMPLE";
 
     /*
      * Parse the arguments for possible optional parameter pairs.
      */
 
     get_InitParms( argc, argv, &serviceStr, 
-                               &networkStr, &daemonStr );
+                               &networkStr, &daemonStr, &groupName, &lostInt );
 
     /*
      * Create internal TIB/Rendezvous machinery
@@ -149,7 +171,7 @@ main( int argc, char **argv)
                 TIBRV_DEFAULT_QUEUE,
                 monCB,
                 transport,
-                "TIBRVFT_TIME_EXAMPLE",
+                groupName,
                 lostInt,
                 NULL);
 

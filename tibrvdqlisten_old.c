@@ -51,13 +51,7 @@
 #include <c:\tibco\tibrv\8.7\include\tibrv\cm.h>
 #include <c:\tibco\tibrv\8.7\include\tibrv\ft.h>
 
-/* 상단 includes */
-#include <time.h>
-#ifdef _WIN32
-  #include <windows.h>  /* for Sleep(ms) */
-#else
-  #include <unistd.h>   /* for usleep */
-#endif
+
 //#include "tibrv/tibrv.h"
 //#include "tibrv/cm.h"
 
@@ -111,7 +105,6 @@ my_callback(
     tibrv_bool          certified = TIBRV_FALSE;
     tibrv_bool          listener_registered = TIBRV_FALSE;
 
-    tibrv_f64 *delayPtr = (tibrv_f64*)closure;
     /*
      * Get the subject name to which this message was sent.
      */
@@ -223,16 +216,6 @@ my_callback(
     }
 
     fflush(stdout);
-
-    /* 메시지 출력 로직은 그대로 ... */
-
-    if (delayPtr && *delayPtr > 0.0) {
-       #ifdef _WIN32
-         Sleep((DWORD)(*delayPtr * 1000.0));
-       #else
-         usleep((useconds_t)(*delayPtr * 1000000.0));
-       #endif
-    }
 }
 
 
@@ -241,9 +224,9 @@ usage(void)
 {
     fprintf(stderr,"tibrvdqlisten [-service service] [-network network] \n");
     fprintf(stderr,"              [-daemon daemon] [-cmname cmname] \n");
-    fprintf(stderr,"              [-workerWeight weight] [-workerTasks tasks] \n");
-    fprintf(stderr,"              [-schedulerWeight] [-heartbeat <ms>] [-activation <ms>]\n");
-    fprintf(stderr,"              [-delay <sec>] [-backlogMsgs msgs] [-backlogBytes bytes] subject_list\n");
+    fprintf(stderr,"              [-workerWeight] [-workerTasks] \n");
+    fprintf(stderr,"              [-schedulerWeight] [-heartbeat <ms>] [-activation <ms>] \n");
+    fprintf(stderr,"              subject_list\n");
     exit(1);
 }
 
@@ -268,10 +251,7 @@ get_InitParms(
     tibrv_u32*  workerTasks,
     tibrv_u16*  schedulerWeight,
     tibrv_f64*  schedulerHeartbeat,
-    tibrv_f64*  schedulerActivation,
-    tibrv_f64*  processingDelay,
-    tibrv_u32*  backlogMsgs,
-    tibrv_u32*  backlogBytes)
+    tibrv_f64*  schedulerActivation)
 {
     int i = 1;
 
@@ -328,21 +308,6 @@ get_InitParms(
             *schedulerActivation = atof(argv[i+1]);
             i+=2;
         }
-        /* tibrv_f64* processingDelay */
-        else if (strcmp(argv[i], "-delay") == 0)
-        {
-            *processingDelay = atof(argv[i+1]);
-            i+=2;
-        }
-        else if(strcmp(argv[i], "-backlogMsgs") == 0) 
-        {
-            *backlogMsgs = (tibrv_u32)atoi(argv[i+1]);
-            i+=2;
-        } else if(strcmp(argv[i], "-backlogBytes") == 0) 
-        {
-            *backlogBytes = (tibrv_u32)atoi(argv[i+1]);
-            i+=2;
-        }
         else
         {
             usage();
@@ -352,7 +317,7 @@ get_InitParms(
     return( i );
 }
 volatile tibrv_bool shutdown_flag = TIBRV_FALSE;
-#if 0
+
 void
 signal_handler(int sig)
 {
@@ -362,7 +327,6 @@ signal_handler(int sig)
        // tibrvQueue_Break(TIBRV_DEFAULT_QUEUE);
     }
 }
-#endif
 int
 main(int argc, char** argv)
 {
@@ -383,9 +347,6 @@ main(int argc, char** argv)
     tibrv_u16 schedulerWeight     = 1;
     tibrv_f64 schedulerHeartbeat  = 1.0;   /* 5초 */
     tibrv_f64 schedulerActivation = 3.5;  /* 10초 */
-    tibrv_f64 processingDelay = 0.0;
-    tibrv_u32           backlogMsgs = 0;
-    tibrv_u32           backlogBytes = 0;
 
     tibrvEvent          advListener;
     tibrvEvent          advId;
@@ -400,12 +361,8 @@ main(int argc, char** argv)
     currentArg = get_InitParms( argc, argv, MIN_PARMS,
                                 &serviceStr, &networkStr, &daemonStr,
                                 &cmnameStr, &workerWeight, &workerTasks, 
-                                &schedulerWeight, &schedulerHeartbeat, &schedulerActivation,
-                                &processingDelay, &backlogMsgs, &backlogBytes);
+                                &schedulerWeight, &schedulerHeartbeat, &schedulerActivation);
 
-   // printf("DEBUG: group=%s workerWeight=%u workerTasks=%u schedulerWeight=%u heartbeat=%f activation=%f backlogMsgs=%u\n",
-    //  cmnameStr, (unsigned)workerWeight, (unsigned)workerTasks, (unsigned)schedulerWeight,
-     //  schedulerHeartbeat, schedulerActivation, (unsigned)backlogMsgs);
     /* Create internal TIB/Rendezvous machinery */
     err = tibrv_Open();
     if (err != TIBRV_OK)
@@ -416,7 +373,7 @@ main(int argc, char** argv)
     }
 
     /* ADDED: Signal handler setup */
-    //signal(SIGINT, signal_handler);
+    signal(SIGINT, signal_handler);
 
     /*
      * Initialize the transport with the given parameters or default NULLs.
@@ -467,20 +424,6 @@ main(int argc, char** argv)
         exit(1);
     }
 
-    /* apply backlog limits if set */
-    if (backlogMsgs > 0) {
-        tibrvcmTransport_SetTaskBacklogLimitInMessages(cmtransport, backlogMsgs);
-    }
-    if (backlogBytes > 0) {
-        tibrvcmTransport_SetTaskBacklogLimitInBytes(cmtransport, backlogBytes);
-    }
-    #if 0
-    // 메시지 개수 기준 제한
-    tibrvcmTransport_SetTaskBacklogLimitInMessages(cmtransport, 50);
-
-    // 또는 메시지 크기 기준 제한 (바이트 단위)
-    //tibrvcmTransport_SetTaskBacklogLimitInBytes(cmtransport, 10240);
-    #endif
     tibrvTransport_SetDescription(transport, progname);
 
     /*
@@ -494,10 +437,8 @@ main(int argc, char** argv)
 
         err = tibrvcmEvent_CreateListener(&cmlistenId, TIBRV_DEFAULT_QUEUE,
                                         my_callback, cmtransport,
-                                        argv[currentArg], &processingDelay);
+                                        argv[currentArg], NULL);
 
-        printf("subjec name=%s\n",
-                    argv[currentArg]);                                
         if (err != TIBRV_OK)
         {
             fprintf(stderr, "%s: Error %s listening to \"%s\"\n",
@@ -551,34 +492,30 @@ main(int argc, char** argv)
                 //&data);
 #endif
      /* Advisory listener: listen to distributed queue advisories */
-    
+#if 1    
     err = tibrvEvent_CreateListener(
-              &advId,
+              &advListener,
               TIBRV_DEFAULT_QUEUE,
-              //advCB,
-              my_callback,
+              advCB,
+              //my_callback,
               transport,
-              //"_RV.INFO.RVCM.QUEUE.SCHEDULER.ACTIVE.MyDQGroup",
-             "_RV.*.*.QUEUE.SCHEDULER.>",
-             //"_RV.*.*.>",
+              "_RV.*.*.QUEUE.SCHEDULER.ACTIVE.>",
+             // "_RV.*.*.>",
               NULL);
 
     if (err != TIBRV_OK) {
         fprintf(stderr, "%s: Failed to create advisory listener --%s\n",
                 progname, tibrvStatus_GetText(err));
         exit(1);
-    }      
-    #if 0                 
+    }                        
     err = tibrvEvent_CreateListener(
-              &advId,
+              &advListener,
               TIBRV_DEFAULT_QUEUE,
-              //advCB,
-              my_callback,
+              advCB,
+              //my_callback,
               transport,
-              //"_RV.INFO.RVCM.QUEUE.SCHEDULER.INACTIVE.MyDQGroup",
-             "_RV.*.*.QUEUE.SCHEDULER.OVERFLOW.MyDQGroup",
-              //"_RV.*.*.QUEUE.SCHEDULER.INACTIVE.>",
-             //"_RV.*.*.>",
+              "_RV.*.*.QUEUE.SCHEDULER.INACTIVE.>",
+             // "_RV.*.*.>",
               NULL);
 
     if (err != TIBRV_OK) {
@@ -586,8 +523,6 @@ main(int argc, char** argv)
                 progname, tibrvStatus_GetText(err));
         exit(1);
     }            
-
-    
     #endif            
 #if 0
      err = tibrvEvent_CreateListener(
@@ -611,10 +546,9 @@ main(int argc, char** argv)
      * Dispatch loop - dispatches events which have been placed on the event queue
      */
 
-     while (tibrvQueue_Dispatch(TIBRV_DEFAULT_QUEUE) == TIBRV_OK);
     //while (tibrvQueue_Dispatch(TIBRV_DEFAULT_QUEUE) == TIBRV_OK && !shutdown_flag);
     //while (tibrvQueue_TimedDispatch(TIBRV_DEFAULT_QUEUE, 0.1) == TIBRV_OK && !shutdown_flag);
-   // while (tibrvQueue_TimedDispatch(TIBRV_DEFAULT_QUEUE, 0.1) == TIBRV_OK && !shutdown_flag);
+    while (tibrvQueue_TimedDispatch(TIBRV_DEFAULT_QUEUE, 0.1) == TIBRV_OK && !shutdown_flag);
     /*
      * Shouldn't get here.....
      */

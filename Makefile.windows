@@ -32,6 +32,7 @@ LIBS=  $(TIBRV_LIB) $(MATH_LIB) $(SOCKET_LIBS) $(SYS_LIBS) $(TLIBS)
 all::	tibrvsend$(EXE) tibrvlisten$(EXE) \
 	tibrvclient$(EXE) tibrvserver$(EXE) \
 	tibrvfttime$(EXE) tibrvftmon$(EXE) \
+	ftCmSend$(EXE) \
 	tibrvinitval$(EXE) tibrvcmsend$(EXE)\
 	tibrvcmlisten$(EXE) tibrvdqlisten$(EXE) \
 	dispatcher$(EXE) priority$(EXE) \
@@ -48,6 +49,7 @@ clean::
 	$(RM) tibrvclient$(EXE)
 	$(RM) tibrvserver$(EXE)
 	$(RM) tibrvfttime$(EXE)
+	$(RM) ftCmSend$(EXE)
 	$(RM) tibrvftmon$(EXE)
 	$(RM) tibrvinitval$(EXE)
 	$(RM) tibrvcmsend$(EXE)
@@ -83,6 +85,9 @@ priority$(EXE):	priority$(O)
 
 tibrvfttime$(EXE):	tibrvfttime$(O)
 	$(CC) $(LDFLAGS) tibrvfttime$(O) $(TIBRVFT_LIB) $(LIBS) $(OUT)$@
+
+ftCmSend$(EXE):	ftCmSend$(O)
+	$(CC) $(LDFLAGS) ftCmSend$(O) $(TIBRVFT_LIB) $(TIBRVCM_LIB) $(LIBS) $(OUT)$@
 
 tibrvftmon$(EXE):	tibrvftmon$(O)
 	$(CC) $(LDFLAGS) tibrvftmon$(O)  $(TIBRVFT_LIB) $(LIBS) $(OUT)$@

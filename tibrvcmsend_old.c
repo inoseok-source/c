@@ -52,13 +52,6 @@ tibrv_u32           current_round;
 tibrv_u32           roundsNum = 10;
 char*               progname;
 
-char* cmname_to_remove = NULL;
-char* subject_to_remove = NULL;
-
-// 전역 변수로 버퍼 포인터와 크기 변수를 선언하여 main과 callback에서 접근합니다.
-void* bigDataBuffer = NULL;
-tibrv_u64 msgSizeNum = 0; // -msgsize 옵션 사용 여부를 판단하는 플래그 역할 (0이면 미사용)
-
 
 void
 advCB(tibrvEvent        event,
@@ -88,8 +81,7 @@ usage(void)
     fprintf(stderr,"tibrvcmsend    [-service service] [-network network] \n");
     fprintf(stderr,"               [-daemon daemon] [-ledger <filename>]\n");
     fprintf(stderr,"               [-cmname <cmname>] [-interval <number>]\n");
-    fprintf(stderr,"               [-rounds <number>] [-cmtime <seconds>] [-msgsize <bytes>]\n");
-    fprintf(stderr,"               [-remove_listener <cmname> <subject>] subject message\n");
+    fprintf(stderr,"               [-rounds <number>] [-cmtime <seconds>] subject message\n");
     exit(1);
 }
 
@@ -113,10 +105,7 @@ get_InitParms(
     char**      cmnameStr,
     tibrv_f64*  intervalNum,
     tibrv_u32*  roundsNum,
-    tibrv_f64* cmtimeNum,
-    tibrv_u64* msgSizeNum_out,
-    char**      cmname_to_remove_out,
-    char**      subject_to_remove_out)
+    tibrv_f64* cmtimeNum)
 {
     int i=1;
 
@@ -165,18 +154,6 @@ get_InitParms(
             *cmtimeNum = atof(argv[i+1]);
             i+=2;
         }
-        else if (strcmp(argv[i], "-msgsize") == 0) // <-- msgsize 옵션 파싱
-        {
-            *msgSizeNum_out = _strtoui64(argv[i+1], NULL, 10);
-            i+=2;
-        }
-        else if (strcmp(argv[i], "-remove_listener") == 0)
-        {
-            if (i+3 > argc) usage();
-            *cmname_to_remove_out = argv[i+1];
-            *subject_to_remove_out = argv[i+2];
-            i+=3;
-        }
         else
         {
             usage();
@@ -207,7 +184,7 @@ sendMsgCallback(
     {
         tibrvEvent_Destroy(event);
     }*/
-#if 1
+
     if (current_round > roundsNum) // 종료 조건 수정
     {
         tibrvEvent_Destroy(event);
@@ -222,55 +199,14 @@ sendMsgCallback(
     err = tibrvcmTransport_Send(cmtransport, send_message);
 
     if (err == TIBRV_OK) {
-        // -msgsize가 사용된 경우, 전송 성공 로그에 크기 정보를 포함합니다.
-        if (msgSizeNum > 0) {
-            fprintf(stderr, "%s: %s in sending message %d (Size: %llu bytes)\n",
-                    progname, tibrvStatus_GetText(err), current_round, msgSizeNum);
-        } else {
         fprintf(stderr, "%s: %s in sending message %d\n",
                     progname, tibrvStatus_GetText(err), current_round);
-        }
     } else {
         fprintf(stderr, "%s: Error sending message --%s\n",
                 progname, tibrvStatus_GetText(err));
     }
 
     current_round++;
-#endif
-#if 0
-/* Send the message */
-    if (current_round <= roundsNum) {
-        err = tibrvcmTransport_Send(cmtransport, send_message);
-        if (err == TIBRV_OK) {
-            fprintf(stderr, "%s: %s in sending message %d\n",
-                        progname, tibrvStatus_GetText(err), current_round);
-        } else {
-            fprintf(stderr, "%s: Error sending message --%s\n",
-                    progname, tibrvStatus_GetText(err));
-        }
-    }
-
-    current_round++;
-
-    /* If we've hit our limit, let's quit or remove listener */
-    if (current_round > roundsNum)
-    {
-        // New logic to remove listener
-        if (cmname_to_remove != NULL && subject_to_remove != NULL)
-        {
-            err = tibrvcmTransport_RemoveListener(cmtransport, cmname_to_remove, subject_to_remove);
-            if (err == TIBRV_OK)
-            {
-                 fprintf(stderr, "Successfully removed listener '%s' for subject '%s'\n", cmname_to_remove, subject_to_remove);
-            }
-            else
-            {
-                 fprintf(stderr, "Failed to remove listener: %s\n", tibrvStatus_GetText(err));
-            }
-        }
-        tibrvEvent_Destroy(event);
-    }
-    #endif
 
 }
 
@@ -302,8 +238,7 @@ main(int argc, char **argv)
      */
     currentArg = get_InitParms(argc, argv, MIN_PARMS, &serviceStr,
                                &networkStr, &daemonStr, &ledgerStr,
-                               &cmnameStr, &intervalNum, &roundsNum, &cmtimeNum, &msgSizeNum,
-                               &cmname_to_remove, &subject_to_remove);
+                               &cmnameStr, &intervalNum, &roundsNum, &cmtimeNum);
 
     /*
      * Create internal TIB/Rendezvous machinery
@@ -374,51 +309,20 @@ main(int argc, char **argv)
 
     subjectLocation = currentArg++;
 
-    if (msgSizeNum > 0)
+    printf("Publishing: subject=%s \"%s\"\n",
+                argv[subjectLocation], argv[currentArg]);
+
+    /* Add the input string to our message */
+    err = tibrvMsg_AddString(send_message, FIELD_NAME, argv[currentArg]);
+
+    if (err != TIBRV_OK)
     {
-        // --- tibrvMsg_AddOpaque 사용 (대용량 메시지 모드) ---
-        printf("Publishing: subject=%s. Message size set to %llu bytes (Mode: Opaque).\n", 
-               argv[subjectLocation], msgSizeNum);
-
-        // 대용량 버퍼 할당
-        bigDataBuffer = malloc((size_t)msgSizeNum);
-        if (bigDataBuffer == NULL)
-        {
-            fprintf(stderr, "%s: Memory allocation failed for %llu bytes.\n", progname, msgSizeNum);
-            exit(1);
-        }
-        // 버퍼를 임의의 값으로 채움
-        memset(bigDataBuffer, 0xAB, (size_t)msgSizeNum); 
-
-        // OPAQUE 타입으로 바이트 배열을 메시지에 추가
-        err = tibrvMsg_AddOpaque(send_message, FIELD_NAME, bigDataBuffer, (tibrv_u32)msgSizeNum);
-        
-        if (err != TIBRV_OK)
-        {
-            fprintf(stderr,
-                    "%s: Failed to add the large buffer (%llu bytes) to the message --%s\n",
-                    progname, msgSizeNum, tibrvStatus_GetText(err));
-            free(bigDataBuffer);
-            exit(1);
-        }
+        fprintf(stderr,
+                "%s: Failed to add the input string to the message --%s\n",
+                progname, tibrvStatus_GetText(err));
+        exit(1);
     }
-    else
-    {
 
-        printf("Publishing: subject=%s \"%s\"\n",
-                    argv[subjectLocation], argv[currentArg]);
-
-        /* Add the input string to our message */
-        err = tibrvMsg_AddString(send_message, FIELD_NAME, argv[currentArg]);
-
-        if (err != TIBRV_OK)
-        {
-            fprintf(stderr,
-                    "%s: Failed to add the input string to the message --%s\n",
-                    progname, tibrvStatus_GetText(err));
-         exit(1);
-        }
-    }
     /* Set the subject name */
     err = tibrvMsg_SetSendSubject(send_message, argv[subjectLocation]);
 
@@ -463,8 +367,8 @@ main(int argc, char **argv)
                 advCB,
                 transport,
                 // "_RV.*.RVFT.*.TIBRVFT_TIME_EXAMPLE",
-                "_RV.*.SYSTEM.>",
-                //"_RV.*.RVCM.>",
+                // "_RV.*.SYSTEM.>",
+                "_RV.*.RVCM.>",
                 // "_RV.*.RVFT.>",
                 NULL);
 
@@ -488,10 +392,7 @@ main(int argc, char **argv)
     tibrvcmTransport_Destroy(cmtransport);
     tibrvTransport_Destroy(transport);
 
-     // Opaque 데이터로 사용된 동적 할당 버퍼 해제
-    if (bigDataBuffer != NULL) {
-        free(bigDataBuffer);
-    }
+
     /*
      * tibrv_Close() will destroy the transport and guarantee delivery.
      */
